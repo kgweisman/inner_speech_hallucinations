@@ -1,0 +1,1104 @@
+---
+title: 'Inner speech & hallucinations'
+subtitle: 'Last updated 2019-04-16'
+author: 'Lifshitz, Weisman, Luhrmann'
+output:
+  html_notebook: default
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(echo = F, message = F, include = F)
+```
+
+```{r}
+# load packages
+library(tidyverse)
+library(lme4)
+library(langcog)
+library(kableExtra)
+```
+
+```{r}
+# load question key (including manual reverse-coding)
+question_key <- read.csv("//Users/kweisman/Documents/Research (Stanford)/Projects/Templeton Grant/DATA WRANGLING/templeton_packets/packets123/packets123_question_key_byhand.csv")
+
+# load data
+d_long <- read_csv("//Users/kweisman/Documents/Research (Stanford)/Projects/Templeton Grant/DATA WRANGLING/templeton_packets/packets123/packets123_data_byquestion_long.csv") %>%
+  mutate(ctry = factor(ctry,
+                       levels = c("us", "ghana", "thailand", 
+                                  "china", "vanuatu"),
+                       labels = c("US", "Ghana", "Thailand", 
+                                  "China", "Vanuatu")))
+
+d_long_subscale <- read_csv("//Users/kweisman/Documents/Research (Stanford)/Projects/Templeton Grant/DATA WRANGLING/templeton_packets/packets123/packets123_data_bysubscale_long.csv") %>%
+  mutate(ctry = factor(ctry, 
+                       levels = c("us", "ghana", "thailand", 
+                                  "china", "vanuatu"),
+                       labels = c("US", "Ghana", "Thailand", 
+                                  "China", "Vanuatu")),
+         subscale = factor(subscale,
+                           levels = c("exwl", 
+                                      "exwl_extra",
+                                      "dse_01to14", 
+                                      "dse_15to16", 
+                                      "spev", 
+                                      "sen_sensory_seeking", 
+                                      "sen_body_awareness", 
+                                      "sen_trait_metamood",
+                                      "her2_hallucination",
+                                      "invo_VISQ_dialogic_speech", 
+                                      "invo_VISQ_inner_speech",
+                                      "invo_VISQ_eval_motiv_inner_speech",
+                                      "invo_hardy_bentall",
+                                      "her_posey_losch",
+                                      "enco_lewicki",
+                                      "meta_van_elk",
+                                      "tat_confidence",
+                                      "tat_positive_beliefs",
+                                      "tat_cognitive",
+                                      "tat_uncontrollability",
+                                      "tat_need_control",
+                                      "minw_mental_states",
+                                      "minw_life_events",
+                                      "minw_inanimate",
+                                      "minw_selves_souls_world",
+                                      "minw_epistemic"),
+                           labels = c("absorption (tellegen)", 
+                                      "absorption (extra)",
+                                      "daily spiritual experiences (#1-14)",
+                                      "daily spiritual experiences (#15-16)",
+                                      "spiritual events", 
+                                      "sensory seeking",
+                                      "body awareness", 
+                                      "attention to feelings",
+                                      "hallucination", 
+                                      "VISQ: dialogic speech",
+                                      "VISQ: inner speech",
+                                      "VISQ: evaluative",
+                                      "inner speech",
+                                      "hearing events",
+                                      "encoding style",
+                                      "mind metaphors",
+                                      "metacog.: lack of cognitive confidence",
+                                      "metacog.: positive beliefs re: worrying",
+                                      "metacog.: cognitive self-consciousness",
+                                      "metacog.: uncontrollability/danger",
+                                      "metacog.: need to control thoughts",
+                                      "dualism: mental states",
+                                      "dualism: life events",
+                                      "dualism: inanimate consciousness",
+                                      "dualism: minds, selves, & world",
+                                      "dualism: epistemology")))
+
+d_wide_subscale <- d_long_subscale %>%
+  spread(subscale, sum_score)
+
+# effect-code site
+contrasts(d_wide_subscale$ctry) <- cbind(gh = c(-1, 1, 0, 0, 0),
+                                         th = c(-1, 0, 1, 0, 0),
+                                         ch = c(-1, 0, 0, 1, 0),
+                                         vt = c(-1, 0, 0, 0, 1))
+```
+
+```{r}
+# make separate datasets for packets 2 vs. 3
+d2_long <- d_long %>% filter(packet == 2)
+d2_long_subscale <- d_long_subscale %>% filter(packet == 2)
+d2_wide_subscale <- d_wide_subscale %>% filter(packet == 2)
+
+d3_long <- d_long %>% filter(packet == 3)
+d3_long_subscale <- d_long_subscale %>% filter(packet == 3)
+d3_wide_subscale <- d_wide_subscale %>% filter(packet == 3)
+```
+
+# Packet 2
+
+From Michael's email (2019-04-15):
+
+> Run a multiple regression model for each site (5 separate models):
+>
+> - DV: her2_hallucination (hallucinations).
+> - IVs: invo_hardy_bentall (inner speech); invo_VISQ_dialogic_speech; invo_VISQ_eval_motiv_inner_speech; invo_VISQ_inner_speech (3 varieties of inner speech subscales).
+
+```{r}
+d2_bysite <- d2_wide_subscale %>%
+  distinct(ctry, subj, hallucination) %>%
+  # standardize within site
+  group_by(ctry) %>%
+  mutate(hallucination_std = scale(hallucination, scale = T)) %>%
+  ungroup() %>%
+  full_join(d2_long_subscale %>%
+              distinct(ctry, subj, subscale, sum_score) %>%
+              filter(subscale %in% c("inner speech", 
+                                     "VISQ: dialogic speech", 
+                                     "VISQ: inner speech", 
+                                     "VISQ: evaluative")) %>%
+              # standardize each subscale within site
+              group_by(ctry, subscale) %>%
+              mutate(sum_score_std = scale(sum_score, scale = T)) %>%
+              ungroup()) %>%
+  distinct() %>%
+  mutate(subscale = factor(subscale))
+
+# effect-code subscale (base: inner speech)
+contrasts(d2_bysite$subscale) <- cbind(VISQdialog = c(1, 0, 0, -1),
+                                       VISQinner = c(0, 1, 0, -1),
+                                       VISQeval = c(0, 0, 1, -1))
+```
+
+## Plots
+
+```{r}
+cor2 <- d2_bysite %>%
+  group_by(ctry, subscale) %>%
+  summarise(cor = cor(hallucination_std, sum_score_std, 
+                      use = "pairwise.complete")) %>%
+  ungroup()
+```
+
+```{r, fig.width = 5, fig.asp = 0.7, include = T}
+ggplot(d2_bysite,
+       aes(x = sum_score_std, y = hallucination_std, color = ctry)) +
+  facet_grid(subscale ~ ctry) +
+  geom_point(alpha = 0.3, show.legend = F) +
+  geom_smooth(method = "lm", color = "black", show.legend = F) +
+  geom_text(data = cor2, 
+            aes(label = paste0("Rsq = ", format(round(cor^2, 2), nsmall = 2))),
+            x = -3.5, y = 2.5, hjust = 0, color = "black", size = 3) +
+  scale_color_brewer(palette = "Dark2") +
+  theme_bw() +
+  labs(title = "Packet 2: Relationships between inner speech and hallucinations",
+       subtitle = "'Rsq' can be interpreted as the proportion of variance in hallucination explained by inner speech (range: 0-1)",
+       x = "Inner speech score (standardized within site)",
+       y = "Hallucination score (standardized within site)")
+```
+
+
+## Four measures of "inner speech"
+
+```{r}
+r2_all_us <- lm(hallucination_std ~ sum_score_std * subscale,
+                d2_bysite %>% filter(ctry == "US"))
+# summary(r2_all_us)
+
+r2_all_gh <- lm(hallucination_std ~ sum_score_std * subscale,
+                d2_bysite %>% filter(ctry == "Ghana"))
+# summary(r2_all_gh)
+
+r2_all_th <- lm(hallucination_std ~ sum_score_std * subscale,
+                d2_bysite %>% filter(ctry == "Thailand"))
+# summary(r2_all_th)
+
+r2_all_ch <- lm(hallucination_std ~ sum_score_std * subscale,
+                d2_bysite %>% filter(ctry == "China"))
+# summary(r2_all_ch)
+
+r2_all_vt <- lm(hallucination_std ~ sum_score_std * subscale,
+                d2_bysite %>% filter(ctry == "Vanuatu"))
+# summary(r2_all_vt)
+```
+
+```{r, include = T}
+rbind(summary(r2_all_us)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "US"),
+      summary(r2_all_gh)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Ghana"),
+      summary(r2_all_th)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Thailand"),
+      summary(r2_all_ch)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "China"),
+      summary(r2_all_vt)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Vanuatu")) %>%
+  rename(b = Estimate, `standard error` = Std..Error, `t` = t.value,
+         p = Pr...t..) %>%
+  mutate_at(vars(-c(parameter, p, site)), funs(round(., 2))) %>%
+  mutate(p = ifelse(p < 0.001, "<0.001", round(p, 3)),
+         significant = ifelse(p < 0.05, "*", "")) %>%
+  select(-site) %>%
+  kable(align = c("l", rep("r", 5), "l"),
+        caption = "Packet 2: Four measures of 'inner speech'") %>%
+  kable_styling() %>%
+  group_rows("US", 1, 8) %>%
+  group_rows("Ghana", 9, 16) %>%
+  group_rows("Thailand", 17, 24) %>%
+  group_rows("China", 25, 32) %>%
+  group_rows("Vanuatu", 33, 40) %>%
+  row_spec(c(seq(2, 34, 8)), bold = T)
+```
+
+## Inner Speech (Hardy Bentall) alone
+
+```{r}
+r2_inner_us <- lm(hallucination_std ~ sum_score_std,
+                  d2_bysite %>% 
+                    filter(subscale == "inner speech", 
+                           ctry == "US"))
+# summary(r2_inner_us)
+
+r2_inner_gh <- lm(hallucination_std ~ sum_score_std,
+                  d2_bysite %>% 
+                    filter(subscale == "inner speech", 
+                           ctry == "Ghana"))
+# summary(r2_inner_gh)
+
+r2_inner_th <- lm(hallucination_std ~ sum_score_std,
+                  d2_bysite %>% 
+                    filter(subscale == "inner speech", 
+                           ctry == "Thailand"))
+# summary(r2_inner_th)
+
+r2_inner_ch <- lm(hallucination_std ~ sum_score_std,
+                  d2_bysite %>% 
+                    filter(subscale == "inner speech", 
+                           ctry == "China"))
+# summary(r2_inner_ch)
+
+r2_inner_vt <- lm(hallucination_std ~ sum_score_std,
+                  d2_bysite %>% 
+                    filter(subscale == "inner speech", 
+                           ctry == "Vanuatu"))
+# summary(r2_inner_vt)
+```
+
+```{r, include = T}
+rbind(summary(r2_inner_us)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "US"),
+      summary(r2_inner_gh)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Ghana"),
+      summary(r2_inner_th)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Thailand"),
+      summary(r2_inner_ch)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "China"),
+      summary(r2_inner_vt)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Vanuatu")) %>%
+  rename(b = Estimate, `standard error` = Std..Error, `t` = t.value,
+         p = Pr...t..) %>%
+  mutate_at(vars(-c(parameter, p, site)), funs(round(., 2))) %>%
+  mutate(p = ifelse(p < 0.001, "<0.001", round(p, 3)),
+         significant = ifelse(p < 0.05, "*", "")) %>%
+  select(-site) %>%
+  kable(align = c("l", rep("r", 5), "l"),
+        caption = "Packet 2: Inner speech (Hardy Bentall) alone") %>%
+  kable_styling() %>%
+  group_rows("US", 1, 2) %>%
+  group_rows("Ghana", 3, 4) %>%
+  group_rows("Thailand", 5, 6) %>%
+  group_rows("China", 7, 8) %>%
+  group_rows("Vanuatu", 9, 10) %>%
+  row_spec(c(seq(2, 10, 2)), bold = T)
+```
+
+## VISQ Dialogic Speech subscale alone
+
+```{r}
+r2_VISQdialogic_us <- lm(hallucination_std ~ sum_score_std,
+                  d2_bysite %>% 
+                    filter(subscale == "VISQ: dialogic speech", 
+                           ctry == "US"))
+# summary(r2_VISQdialogic_us)
+
+r2_VISQdialogic_gh <- lm(hallucination_std ~ sum_score_std,
+                  d2_bysite %>% 
+                    filter(subscale == "VISQ: dialogic speech", 
+                           ctry == "Ghana"))
+# summary(r2_VISQdialogic_gh)
+
+r2_VISQdialogic_th <- lm(hallucination_std ~ sum_score_std,
+                  d2_bysite %>% 
+                    filter(subscale == "VISQ: dialogic speech", 
+                           ctry == "Thailand"))
+# summary(r2_VISQdialogic_th)
+
+r2_VISQdialogic_ch <- lm(hallucination_std ~ sum_score_std,
+                  d2_bysite %>% 
+                    filter(subscale == "VISQ: dialogic speech", 
+                           ctry == "China"))
+# summary(r2_VISQdialogic_ch)
+
+r2_VISQdialogic_vt <- lm(hallucination_std ~ sum_score_std,
+                  d2_bysite %>% 
+                    filter(subscale == "VISQ: dialogic speech", 
+                           ctry == "Vanuatu"))
+# summary(r2_VISQdialogic_vt)
+```
+
+```{r, include = T}
+rbind(summary(r2_VISQdialogic_us)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "US"),
+      summary(r2_VISQdialogic_gh)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Ghana"),
+      summary(r2_VISQdialogic_th)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Thailand"),
+      summary(r2_VISQdialogic_ch)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "China"),
+      summary(r2_VISQdialogic_vt)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Vanuatu")) %>%
+  rename(b = Estimate, `standard error` = Std..Error, `t` = t.value,
+         p = Pr...t..) %>%
+  mutate_at(vars(-c(parameter, p, site)), funs(round(., 2))) %>%
+  mutate(p = ifelse(p < 0.001, "<0.001", round(p, 3)),
+         significant = ifelse(p < 0.05, "*", "")) %>%
+  select(-site) %>%
+  kable(align = c("l", rep("r", 5), "l"),
+        caption = "Packet 2: VISQ: dialogic speech subscale alone") %>%
+  kable_styling() %>%
+  group_rows("US", 1, 2) %>%
+  group_rows("Ghana", 3, 4) %>%
+  group_rows("Thailand", 5, 6) %>%
+  group_rows("China", 7, 8) %>%
+  group_rows("Vanuatu", 9, 10) %>%
+  row_spec(c(seq(2, 10, 2)), bold = T)
+```
+
+## VISQ Evaluative/Motivational Speech subscale alone
+
+```{r}
+r2_VISQeval_us <- lm(hallucination_std ~ sum_score_std,
+                  d2_bysite %>% 
+                    filter(subscale == "VISQ: evaluative", 
+                           ctry == "US"))
+# summary(r2_VISQeval_us)
+
+r2_VISQeval_gh <- lm(hallucination_std ~ sum_score_std,
+                  d2_bysite %>% 
+                    filter(subscale == "VISQ: evaluative", 
+                           ctry == "Ghana"))
+# summary(r2_VISQeval_gh)
+
+r2_VISQeval_th <- lm(hallucination_std ~ sum_score_std,
+                  d2_bysite %>% 
+                    filter(subscale == "VISQ: evaluative", 
+                           ctry == "Thailand"))
+# summary(r2_VISQeval_th)
+
+r2_VISQeval_ch <- lm(hallucination_std ~ sum_score_std,
+                  d2_bysite %>% 
+                    filter(subscale == "VISQ: evaluative", 
+                           ctry == "China"))
+# summary(r2_VISQeval_ch)
+
+r2_VISQeval_vt <- lm(hallucination_std ~ sum_score_std,
+                  d2_bysite %>% 
+                    filter(subscale == "VISQ: evaluative", 
+                           ctry == "Vanuatu"))
+# summary(r2_VISQeval_vt)
+```
+
+```{r, include = T}
+rbind(summary(r2_VISQeval_us)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "US"),
+      summary(r2_VISQeval_gh)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Ghana"),
+      summary(r2_VISQeval_th)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Thailand"),
+      summary(r2_VISQeval_ch)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "China"),
+      summary(r2_VISQeval_vt)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Vanuatu")) %>%
+  rename(b = Estimate, `standard error` = Std..Error, `t` = t.value,
+         p = Pr...t..) %>%
+  mutate_at(vars(-c(parameter, p, site)), funs(round(., 2))) %>%
+  mutate(p = ifelse(p < 0.001, "<0.001", round(p, 3)),
+         significant = ifelse(p < 0.05, "*", "")) %>%
+  select(-site) %>%
+  kable(align = c("l", rep("r", 5), "l"),
+        caption = "Packet 2: VISQ: evaluative/motivational speech subscale alone") %>%
+  kable_styling() %>%
+  group_rows("US", 1, 2) %>%
+  group_rows("Ghana", 3, 4) %>%
+  group_rows("Thailand", 5, 6) %>%
+  group_rows("China", 7, 8) %>%
+  group_rows("Vanuatu", 9, 10) %>%
+  row_spec(c(seq(2, 10, 2)), bold = T)
+```
+
+## VISQ Inner Speech subscale alone
+
+```{r}
+r2_VISQinner_us <- lm(hallucination_std ~ sum_score_std,
+                  d2_bysite %>% 
+                    filter(subscale == "VISQ: inner speech", 
+                           ctry == "US"))
+# summary(r2_VISQinner_us)
+
+r2_VISQinner_gh <- lm(hallucination_std ~ sum_score_std,
+                  d2_bysite %>% 
+                    filter(subscale == "VISQ: inner speech", 
+                           ctry == "Ghana"))
+# summary(r2_VISQinner_gh)
+
+r2_VISQinner_th <- lm(hallucination_std ~ sum_score_std,
+                  d2_bysite %>% 
+                    filter(subscale == "VISQ: inner speech", 
+                           ctry == "Thailand"))
+# summary(r2_VISQinner_th)
+
+r2_VISQinner_ch <- lm(hallucination_std ~ sum_score_std,
+                  d2_bysite %>% 
+                    filter(subscale == "VISQ: inner speech", 
+                           ctry == "China"))
+# summary(r2_VISQinner_ch)
+
+r2_VISQinner_vt <- lm(hallucination_std ~ sum_score_std,
+                  d2_bysite %>% 
+                    filter(subscale == "VISQ: inner speech", 
+                           ctry == "Vanuatu"))
+# summary(r2_VISQinner_vt)
+```
+
+```{r, include = T}
+rbind(summary(r2_VISQinner_us)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "US"),
+      summary(r2_VISQinner_gh)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Ghana"),
+      summary(r2_VISQinner_th)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Thailand"),
+      summary(r2_VISQinner_ch)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "China"),
+      summary(r2_VISQinner_vt)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Vanuatu")) %>%
+  rename(b = Estimate, `standard error` = Std..Error, `t` = t.value,
+         p = Pr...t..) %>%
+  mutate_at(vars(-c(parameter, p, site)), funs(round(., 2))) %>%
+  mutate(p = ifelse(p < 0.001, "<0.001", round(p, 3)),
+         significant = ifelse(p < 0.05, "*", "")) %>%
+  select(-site) %>%
+  kable(align = c("l", rep("r", 5), "l"),
+        caption = "Packet 2: VISQ: inner speech subscale alone") %>%
+  kable_styling() %>%
+  group_rows("US", 1, 2) %>%
+  group_rows("Ghana", 3, 4) %>%
+  group_rows("Thailand", 5, 6) %>%
+  group_rows("China", 7, 8) %>%
+  group_rows("Vanuatu", 9, 10) %>%
+  row_spec(c(seq(2, 10, 2)), bold = T)
+```
+
+
+# Packet 3
+
+From Michael's email (2019-04-15):
+
+> Run a multiple regression model for each site (so that's 4 separate models—not 5 because we are missing Hardy-Bentall data from China): 
+> 
+> - DV: her_posey_losch (hallucinations)
+> - IVs: invo_hardy_bentall (inner speech); tat_cognitive; tat_confidence; tat_need_control; tat_positive_beliefs; tat_uncontrollability (5 meta-cognition subscales).
+
+```{r}
+d3_bysite <- d3_wide_subscale %>%
+  distinct(ctry, subj, `hearing events`) %>%
+  filter(!is.na(`hearing events`)) %>%
+  # standardize within site
+  group_by(ctry) %>%
+  mutate(hearing_events_std = scale(`hearing events`, scale = T)) %>%
+  ungroup() %>%
+  full_join(d3_long_subscale %>%
+              distinct(ctry, subj, subscale, sum_score) %>%
+              filter(subscale %in% c("inner speech", 
+                                     "metacog.: lack of cognitive confidence", 
+                                     "metacog.: positive beliefs re: worrying", 
+                                     "metacog.: cognitive self-consciousness",
+                                     "metacog.: uncontrollability/danger",
+                                     "metacog.: need to control thoughts")) %>%
+              # standardize each subscale within site
+              group_by(ctry, subscale) %>%
+              mutate(sum_score_std = scale(sum_score, scale = T)) %>%
+              ungroup()) %>%
+  distinct() %>%
+  mutate(subscale = factor(subscale))
+
+# effect-code subscale (base: inner speech)
+contrasts(d3_bysite$subscale) <- cbind(METAconf = c(-1, 1, 0, 0, 0, 0),
+                                       METApos = c(-1, 0, 1, 0, 0, 0),
+                                       METAcog = c(-1, 0, 0, 1, 0, 0),
+                                       METAunctl = c(-1, 0, 0, 0, 1, 0),
+                                       METAneedctl = c(-1, 0, 0, 0, 0, 1))
+```
+
+## Plots
+
+```{r}
+cor3 <- d3_bysite %>%
+  group_by(ctry, subscale) %>%
+  summarise(cor = cor(hearing_events_std, sum_score_std, 
+                      use = "pairwise.complete")) %>%
+  ungroup()
+
+cor3
+```
+
+```{r, fig.width = 5, fig.asp = 1, include = T}
+ggplot(d3_bysite %>%
+         mutate(subscale = str_wrap(subscale, width = 22)),
+       aes(x = sum_score_std, y = hearing_events_std, color = ctry)) +
+  facet_grid(subscale ~ ctry) +
+  geom_point(alpha = 0.3, show.legend = F) +
+  geom_smooth(method = "lm", color = "black", show.legend = F) +
+  geom_text(data = cor3 %>%
+              mutate(subscale = str_wrap(subscale, width = 22)),
+            aes(label = paste0("Rsq = ", format(round(cor^2, 2), nsmall = 2))),
+            x = -3.5, y = 3, hjust = 0, color = "black", size = 3) +
+  scale_color_brewer(palette = "Dark2") +
+  theme_bw() +
+  labs(title = "Packet 3: Relationships between inner speech and hearing events",
+       subtitle = "'Rsq' can be interpreted as the proportion of variance in hearing events explained by inner speech (range: 0-1)",
+       x = "Inner speech score (standardized within site)",
+       y = "Hearing events score (standardized within site)")
+```
+
+
+## Six measures of "inner speech"
+
+```{r}
+r3_all_us <- lm(hearing_events_std ~ sum_score_std * subscale,
+                d3_bysite %>% filter(ctry == "US"))
+# summary(r3_all_us)
+
+r3_all_gh <- lm(hearing_events_std ~ sum_score_std * subscale,
+                d3_bysite %>% filter(ctry == "Ghana"))
+# summary(r3_all_gh)
+
+r3_all_th <- lm(hearing_events_std ~ sum_score_std * subscale,
+                d3_bysite %>% filter(ctry == "Thailand"))
+# summary(r3_all_th)
+
+r3_all_ch <- lm(hearing_events_std ~ sum_score_std * subscale,
+                d3_bysite %>% filter(ctry == "China") %>%
+                  # correct for only 5 measures (no inner speech)
+                  mutate(subscale = factor(subscale)),
+                contrasts = list(subscale = cbind(
+                  METAconf = c(1, 0, 0, 0, -1),
+                  METApos = c(0, 1, 0, 0, -1),
+                  METAcog = c(0, 0, 1, 0, -1),
+                  METAunctl = c(0, 0, 0, 1, -1))))
+# summary(r3_all_ch)
+
+r3_all_vt <- lm(hearing_events_std ~ sum_score_std * subscale,
+                d3_bysite %>% filter(ctry == "Vanuatu"))
+# summary(r3_all_vt)
+```
+
+```{r, include = T}
+rbind(summary(r3_all_us)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "US"),
+      summary(r3_all_gh)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Ghana"),
+      summary(r3_all_th)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Thailand"),
+      summary(r3_all_ch)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "China"),
+      summary(r3_all_vt)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Vanuatu")) %>%
+  rename(b = Estimate, `standard error` = Std..Error, `t` = t.value,
+         p = Pr...t..) %>%
+  mutate_at(vars(-c(parameter, p, site)), funs(round(., 2))) %>%
+  mutate(p = ifelse(p < 0.001, "<0.001", round(p, 3)),
+         significant = ifelse(p < 0.05, "*", "")) %>%
+  select(-site) %>%
+  kable(align = c("l", rep("r", 5), "l"),
+        caption = "Packet 3: Six measures of 'inner speech'") %>%
+  kable_styling() %>%
+  group_rows("US", 1, 12) %>%
+  group_rows("Ghana", 13, 24) %>%
+  group_rows("Thailand", 25, 36) %>%
+  group_rows("China", 37, 46) %>%
+  group_rows("Vanuatu", 47, 58) %>%
+  row_spec(c(seq(2, 26, 12), 38, 48), bold = T)
+```
+
+## Inner Speech (Hardy Bentall) alone
+
+```{r}
+r3_inner_us <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "inner speech", 
+                           ctry == "US"))
+# summary(r3_inner_us)
+
+r3_inner_gh <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "inner speech", 
+                           ctry == "Ghana"))
+# summary(r3_inner_gh)
+
+r3_inner_th <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "inner speech", 
+                           ctry == "Thailand"))
+# summary(r3_inner_th)
+
+# r3_inner_ch <- lm(hearing_events_std ~ sum_score_std,
+#                   d3_bysite %>% 
+#                     filter(subscale == "inner speech", 
+#                            ctry == "China"))
+# # summary(r3_inner_ch)
+
+r3_inner_vt <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "inner speech", 
+                           ctry == "Vanuatu"))
+# summary(r3_inner_vt)
+```
+
+```{r, include = T}
+rbind(summary(r3_inner_us)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "US"),
+      summary(r3_inner_gh)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Ghana"),
+      summary(r3_inner_th)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Thailand"),
+      # summary(r3_inner_ch)$coefficients %>%
+      #   data.frame() %>%
+      #   rownames_to_column("parameter") %>%
+      #   mutate(site = "China"),
+      summary(r3_inner_vt)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Vanuatu")) %>%
+  rename(b = Estimate, `standard error` = Std..Error, `t` = t.value,
+         p = Pr...t..) %>%
+  mutate_at(vars(-c(parameter, p, site)), funs(round(., 2))) %>%
+  mutate(p = ifelse(p < 0.001, "<0.001", round(p, 3)),
+         significant = ifelse(p < 0.05, "*", "")) %>%
+  select(-site) %>%
+  kable(align = c("l", rep("r", 5), "l"),
+        caption = "Packet 3: Inner speech (Hardy Bentall) alone") %>%
+  kable_styling() %>%
+  group_rows("US", 1, 2) %>%
+  group_rows("Ghana", 3, 4) %>%
+  group_rows("Thailand", 5, 6) %>%
+  # group_rows("China", 7, 8) %>%
+  group_rows("Vanuatu", 7, 8) %>%
+  row_spec(c(seq(2, 9, 2)), bold = T)
+```
+
+## Metacognition: Lack of Cognitive Confidence subscale alone
+
+```{r}
+r3_METAconf_us <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "metacog.: lack of cognitive confidence",
+                           ctry == "US"))
+# summary(r3_METAconf_us)
+
+r3_METAconf_gh <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "metacog.: lack of cognitive confidence",
+                           ctry == "Ghana"))
+# summary(r3_METAconf_gh)
+
+r3_METAconf_th <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "metacog.: lack of cognitive confidence",
+                           ctry == "Thailand"))
+# summary(r3_METAconf_th)
+
+r3_METAconf_ch <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "metacog.: lack of cognitive confidence",
+                           ctry == "China"))
+# summary(r3_METAconf_ch)
+
+r3_METAconf_vt <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "metacog.: lack of cognitive confidence",
+                           ctry == "Vanuatu"))
+# summary(r3_METAconf_vt)
+```
+
+```{r, include = T}
+rbind(summary(r3_METAconf_us)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "US"),
+      summary(r3_METAconf_gh)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Ghana"),
+      summary(r3_METAconf_th)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Thailand"),
+      summary(r3_METAconf_ch)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "China"),
+      summary(r3_METAconf_vt)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Vanuatu")) %>%
+  rename(b = Estimate, `standard error` = Std..Error, `t` = t.value,
+         p = Pr...t..) %>%
+  mutate_at(vars(-c(parameter, p, site)), funs(round(., 2))) %>%
+  mutate(p = ifelse(p < 0.001, "<0.001", round(p, 3)),
+         significant = ifelse(p < 0.05, "*", "")) %>%
+  select(-site) %>%
+  kable(align = c("l", rep("r", 5), "l"),
+        caption = "Packet 3: metacog.: lack of cognitive confidence subscale alone") %>%
+  kable_styling() %>%
+  group_rows("US", 1, 2) %>%
+  group_rows("Ghana", 3, 4) %>%
+  group_rows("Thailand", 5, 6) %>%
+  group_rows("China", 7, 8) %>%
+  group_rows("Vanuatu", 9, 10) %>%
+  row_spec(c(seq(2, 10, 2)), bold = T)
+```
+
+## Metacognition: Positive Beliefs re: Worrying subscale alone
+
+```{r}
+r3_METApos_us <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "metacog.: positive beliefs re: worrying",
+                           ctry == "US"))
+# summary(r3_METApos_us)
+
+r3_METApos_gh <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "metacog.: positive beliefs re: worrying",
+                           ctry == "Ghana"))
+# summary(r3_METApos_gh)
+
+r3_METApos_th <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "metacog.: positive beliefs re: worrying",
+                           ctry == "Thailand"))
+# summary(r3_METApos_th)
+
+r3_METApos_ch <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "metacog.: positive beliefs re: worrying",
+                           ctry == "China"))
+# summary(r3_METApos_ch)
+
+r3_METApos_vt <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "metacog.: positive beliefs re: worrying",
+                           ctry == "Vanuatu"))
+# summary(r3_METApos_vt)
+```
+
+```{r, include = T}
+rbind(summary(r3_METApos_us)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "US"),
+      summary(r3_METApos_gh)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Ghana"),
+      summary(r3_METApos_th)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Thailand"),
+      summary(r3_METApos_ch)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "China"),
+      summary(r3_METApos_vt)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Vanuatu")) %>%
+  rename(b = Estimate, `standard error` = Std..Error, `t` = t.value,
+         p = Pr...t..) %>%
+  mutate_at(vars(-c(parameter, p, site)), funs(round(., 2))) %>%
+  mutate(p = ifelse(p < 0.001, "<0.001", round(p, 3)),
+         significant = ifelse(p < 0.05, "*", "")) %>%
+  select(-site) %>%
+  kable(align = c("l", rep("r", 5), "l"),
+        caption = "Packet 3: metacog.: positive beliefs re: worrying subscale alone") %>%
+  kable_styling() %>%
+  group_rows("US", 1, 2) %>%
+  group_rows("Ghana", 3, 4) %>%
+  group_rows("Thailand", 5, 6) %>%
+  group_rows("China", 7, 8) %>%
+  group_rows("Vanuatu", 9, 10) %>%
+  row_spec(c(seq(2, 10, 2)), bold = T)
+```
+
+## Metacognition: Cognitive Self-consciousness subscale alone
+
+```{r}
+r3_METAcog_us <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "metacog.: cognitive self-consciousness",
+                           ctry == "US"))
+# summary(r3_METAcog_us)
+
+r3_METAcog_gh <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "metacog.: cognitive self-consciousness",
+                           ctry == "Ghana"))
+# summary(r3_METAcog_gh)
+
+r3_METAcog_th <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "metacog.: cognitive self-consciousness",
+                           ctry == "Thailand"))
+# summary(r3_METAcog_th)
+
+r3_METAcog_ch <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "metacog.: cognitive self-consciousness",
+                           ctry == "China"))
+# summary(r3_METAcog_ch)
+
+r3_METAcog_vt <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "metacog.: cognitive self-consciousness",
+                           ctry == "Vanuatu"))
+# summary(r3_METAcog_vt)
+```
+
+```{r, include = T}
+rbind(summary(r3_METAcog_us)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "US"),
+      summary(r3_METAcog_gh)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Ghana"),
+      summary(r3_METAcog_th)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Thailand"),
+      summary(r3_METAcog_ch)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "China"),
+      summary(r3_METAcog_vt)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Vanuatu")) %>%
+  rename(b = Estimate, `standard error` = Std..Error, `t` = t.value,
+         p = Pr...t..) %>%
+  mutate_at(vars(-c(parameter, p, site)), funs(round(., 2))) %>%
+  mutate(p = ifelse(p < 0.001, "<0.001", round(p, 3)),
+         significant = ifelse(p < 0.05, "*", "")) %>%
+  select(-site) %>%
+  kable(align = c("l", rep("r", 5), "l"),
+        caption = "Packet 3: metacog.: cognitive self-consciousness subscale alone") %>%
+  kable_styling() %>%
+  group_rows("US", 1, 2) %>%
+  group_rows("Ghana", 3, 4) %>%
+  group_rows("Thailand", 5, 6) %>%
+  group_rows("China", 7, 8) %>%
+  group_rows("Vanuatu", 9, 10) %>%
+  row_spec(c(seq(2, 10, 2)), bold = T)
+```
+
+## Metacognition: Uncontrollability/Danger subscale alone
+
+```{r}
+r3_METAunctl_us <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "metacog.: uncontrollability/danger",
+                           ctry == "US"))
+# summary(r3_METAunctl_us)
+
+r3_METAunctl_gh <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "metacog.: uncontrollability/danger",
+                           ctry == "Ghana"))
+# summary(r3_METAunctl_gh)
+
+r3_METAunctl_th <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "metacog.: uncontrollability/danger",
+                           ctry == "Thailand"))
+# summary(r3_METAunctl_th)
+
+r3_METAunctl_ch <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "metacog.: uncontrollability/danger",
+                           ctry == "China"))
+# summary(r3_METAunctl_ch)
+
+r3_METAunctl_vt <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "metacog.: uncontrollability/danger",
+                           ctry == "Vanuatu"))
+# summary(r3_METAunctl_vt)
+```
+
+```{r, include = T}
+rbind(summary(r3_METAunctl_us)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "US"),
+      summary(r3_METAunctl_gh)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Ghana"),
+      summary(r3_METAunctl_th)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Thailand"),
+      summary(r3_METAunctl_ch)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "China"),
+      summary(r3_METAunctl_vt)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Vanuatu")) %>%
+  rename(b = Estimate, `standard error` = Std..Error, `t` = t.value,
+         p = Pr...t..) %>%
+  mutate_at(vars(-c(parameter, p, site)), funs(round(., 2))) %>%
+  mutate(p = ifelse(p < 0.001, "<0.001", round(p, 3)),
+         significant = ifelse(p < 0.05, "*", "")) %>%
+  select(-site) %>%
+  kable(align = c("l", rep("r", 5), "l"),
+        caption = "Packet 3: metacog.: uncontrollability/danger subscale alone") %>%
+  kable_styling() %>%
+  group_rows("US", 1, 2) %>%
+  group_rows("Ghana", 3, 4) %>%
+  group_rows("Thailand", 5, 6) %>%
+  group_rows("China", 7, 8) %>%
+  group_rows("Vanuatu", 9, 10) %>%
+  row_spec(c(seq(2, 10, 2)), bold = T)
+```
+
+## Metacognition: Need to Control Thoughts subscale alone
+
+```{r}
+r3_METAneedctl_us <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "metacog.: need to control thoughts",
+                           ctry == "US"))
+# summary(r3_METAneedctl_us)
+
+r3_METAneedctl_gh <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "metacog.: need to control thoughts",
+                           ctry == "Ghana"))
+# summary(r3_METAneedctl_gh)
+
+r3_METAneedctl_th <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "metacog.: need to control thoughts",
+                           ctry == "Thailand"))
+# summary(r3_METAneedctl_th)
+
+r3_METAneedctl_ch <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "metacog.: need to control thoughts",
+                           ctry == "China"))
+# summary(r3_METAneedctl_ch)
+
+r3_METAneedctl_vt <- lm(hearing_events_std ~ sum_score_std,
+                  d3_bysite %>% 
+                    filter(subscale == "metacog.: need to control thoughts",
+                           ctry == "Vanuatu"))
+# summary(r3_METAneedctl_vt)
+```
+
+```{r, include = T}
+rbind(summary(r3_METAneedctl_us)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "US"),
+      summary(r3_METAneedctl_gh)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Ghana"),
+      summary(r3_METAneedctl_th)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Thailand"),
+      summary(r3_METAneedctl_ch)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "China"),
+      summary(r3_METAneedctl_vt)$coefficients %>%
+        data.frame() %>%
+        rownames_to_column("parameter") %>%
+        mutate(site = "Vanuatu")) %>%
+  rename(b = Estimate, `standard error` = Std..Error, `t` = t.value,
+         p = Pr...t..) %>%
+  mutate_at(vars(-c(parameter, p, site)), funs(round(., 2))) %>%
+  mutate(p = ifelse(p < 0.001, "<0.001", round(p, 3)),
+         significant = ifelse(p < 0.05, "*", "")) %>%
+  select(-site) %>%
+  kable(align = c("l", rep("r", 5), "l"),
+        caption = "Packet 3: metacog.: need to control thoughts subscale alone") %>%
+  kable_styling() %>%
+  group_rows("US", 1, 2) %>%
+  group_rows("Ghana", 3, 4) %>%
+  group_rows("Thailand", 5, 6) %>%
+  group_rows("China", 7, 8) %>%
+  group_rows("Vanuatu", 9, 10) %>%
+  row_spec(c(seq(2, 10, 2)), bold = T)
+```
+
+
